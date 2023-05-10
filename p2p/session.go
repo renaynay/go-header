@@ -59,7 +59,7 @@ func newSession[H header.Header](
 		cancel:         cancel,
 		protocolID:     protocolID,
 		host:           h,
-		queue:          newPeerQueue(ctx, peerTracker.peers()),
+		queue:          newPeerQueue(ctx, peerTracker.tracked()),
 		peerTracker:    peerTracker,
 		requestTimeout: requestTimeout,
 	}

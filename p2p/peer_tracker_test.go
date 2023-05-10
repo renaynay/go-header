@@ -3,6 +3,8 @@ package p2p
 import (
 	"context"
 	"errors"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"testing"
 	"time"
 
@@ -75,12 +77,36 @@ func TestPeerTracker_GC(t *testing.T) {
 }
 
 func TestPeerTracker_BlockPeer(t *testing.T) {
-	h := createMocknet(t, 2)
+	mockNet := createMocknet(t, 2)
 	connGater, err := conngater.NewBasicConnectionGater(sync.MutexWrap(datastore.NewMapDatastore()))
 	require.NoError(t, err)
-	p := newPeerTracker(h[0], connGater, nil)
+	p := newPeerTracker(mockNet[0], connGater, nil)
 	maxAwaitingTime = time.Millisecond
-	p.blockPeer(h[1].ID(), errors.New("test"))
+	p.blockPeer(mockNet[1].ID(), errors.New("test"))
 	require.Len(t, connGater.ListBlockedPeers(), 1)
-	require.True(t, connGater.ListBlockedPeers()[0] == h[1].ID())
+	require.True(t, connGater.ListBlockedPeers()[0] == mockNet[1].ID())
+}
+
+func TestPeerTracker_BootstrapFromPreviouslySeen(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	mockNet := createMocknet(t, 10)
+	self := mockNet[0]
+
+	// put first 4 remote peers into persisted peerstore as previously seen
+	previouslySeen := make([]peer.AddrInfo, 4)
+	for i, p := range mockNet[1:5] {
+		previouslySeen[i] = *host.InfoFromHost(p)
+	}
+	peerstore := peerstore.NewPeerStore(sync.MutexWrap(datastore.NewMapDatastore()))
+	err := peerstore.Put(ctx, previouslySeen)
+	require.NoError(t, err)
+
+	mockNet = mockNet[5:]
+
+	connGater, err := conngater.NewBasicConnectionGater(sync.MutexWrap(datastore.NewMapDatastore()))
+	require.NoError(t, err)
+	tracker := newPeerTracker(self, connGater, nil)
+
 }

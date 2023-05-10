@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -75,6 +76,14 @@ func (p *peerTracker) track() {
 		p.done <- struct{}{}
 	}()
 
+	// bootstrap tracker from peers in persisted peerstore (if available)
+	if p.peerstore != nil {
+		err := p.connectToPreviouslySeen()
+		if err != nil {
+			log.Warnw("failed to bootstrap peerTracker from previously seen peers", "err", err)
+		}
+	}
+
 	// store peers that have been already connected
 	for _, c := range p.host.Network().Conns() {
 		p.connected(c.RemotePeer())
@@ -104,6 +113,29 @@ func (p *peerTracker) track() {
 			}
 		}
 	}
+}
+
+func (p *peerTracker) connectToPreviouslySeen() error {
+	// TODO @renaynay: short lived context here?
+	previouslySeen, err := p.peerstore.Load(p.ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, previouslySeen := range previouslySeen {
+		// if not already connected, dial peer
+		if p.host.Network().Connectedness(previouslySeen.ID) != network.Connected {
+			_, err := p.host.Network().DialPeer(p.ctx, previouslySeen.ID)
+			if err != nil {
+				log.Warnw("unable to connect to previously seen peer",
+					"peerID", previouslySeen.ID, "err", err)
+				// try to connect to as many previously seen as possible
+				continue
+			}
+		}
+		p.connected(previouslySeen.ID)
+	}
+	return nil
 }
 
 func (p *peerTracker) connected(pID peer.ID) {
@@ -151,7 +183,7 @@ func (p *peerTracker) disconnected(pID peer.ID) {
 	delete(p.trackedPeers, pID)
 }
 
-func (p *peerTracker) peers() []*peerStat {
+func (p *peerTracker) tracked() []*peerStat {
 	p.peerLk.RLock()
 	defer p.peerLk.RUnlock()
 	peers := make([]*peerStat, 0, len(p.trackedPeers))
@@ -159,6 +191,20 @@ func (p *peerTracker) peers() []*peerStat {
 		peers = append(peers, stat)
 	}
 	return peers
+}
+
+func (p *peerTracker) peers(numPeers int) ([]peer.ID, error) {
+	peers := p.tracked()
+	if len(peers) < numPeers {
+		return nil, fmt.Errorf("not enough peers in peerTracker: requested %d, tracked peers %d",
+			numPeers, len(peers))
+	}
+
+	ids := make([]peer.ID, numPeers)
+	for i, p := range peers[:numPeers] {
+		ids[i] = p.peerID
+	}
+	return ids, nil
 }
 
 // gc goes through connected and disconnected peers once every gcPeriod

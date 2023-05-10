@@ -118,24 +118,23 @@ func (ex *Exchange[H]) Head(ctx context.Context, opts ...header.Option) (H, erro
 	log.Debug("requesting head")
 
 	var reqOpts header.RequestOptions
-
 	for _, opt := range opts {
 		opt(&reqOpts)
 	}
 
-	peerset := ex.trustedPeers()
+	var (
+		peerset = ex.trustedPeers()
+
+		zero H
+		err  error
+	)
+	// only use trusted peers if subjective initialization is necessary, otherwise
+	// random peers from peerTracker can be used
 	if !reqOpts.SubjectiveInit {
-		// otherwise, node has a chain head that is NOT outdated so we can actually request random peers in
-		// addition to trusted
-		if ex.Params.peerstore != nil {
-			peers, err := ex.Params.peerstore.Load(ctx)
-			if err != nil { // DISCUSS(team): should we return an error here or just use the trustedPeers?
-				var zero H
-				return zero, err
-			}
-			for _, peer := range peers {
-				peerset = append(peerset, peer.ID)
-			}
+		peerset, err = ex.peerTracker.peers(3)
+		if err != nil {
+			log.Errorw("retrieving peers from peerTracker", "err", err)
+			return zero, err
 		}
 	}
 
@@ -152,7 +151,6 @@ func (ex *Exchange[H]) Head(ctx context.Context, opts ...header.Option) (H, erro
 	}
 
 	var (
-		zero         H
 		headerRespCh = make(chan H, len(peerset))
 		headerReq    = &p2p_pb.HeaderRequest{
 			Data:   &p2p_pb.HeaderRequest_Origin{Origin: uint64(0)},
