@@ -3,13 +3,13 @@ package p2p
 import (
 	"context"
 	"errors"
-	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/peer"
 	"testing"
 	"time"
 
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/sync"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/net/conngater"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -87,26 +87,46 @@ func TestPeerTracker_BlockPeer(t *testing.T) {
 	require.True(t, connGater.ListBlockedPeers()[0] == mockNet[1].ID())
 }
 
+// TestPeerTracker_BootstrapFromPreviouslySeen tests whether previously-seen peers
+// loaded from the peerstore make it into the peerTracker's tracked peer list.
 func TestPeerTracker_BootstrapFromPreviouslySeen(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
 	mockNet := createMocknet(t, 10)
-	self := mockNet[0]
 
-	// put first 4 remote peers into persisted peerstore as previously seen
+	peerstore := peerstore.NewPeerStore(sync.MutexWrap(datastore.NewMapDatastore()))
+
+	// put first 4 remote peers into persisted peerstore as previously seen (reserve index 0 for self)
 	previouslySeen := make([]peer.AddrInfo, 4)
 	for i, p := range mockNet[1:5] {
 		previouslySeen[i] = *host.InfoFromHost(p)
 	}
-	peerstore := peerstore.NewPeerStore(sync.MutexWrap(datastore.NewMapDatastore()))
 	err := peerstore.Put(ctx, previouslySeen)
 	require.NoError(t, err)
 
-	mockNet = mockNet[5:]
-
 	connGater, err := conngater.NewBasicConnectionGater(sync.MutexWrap(datastore.NewMapDatastore()))
 	require.NoError(t, err)
-	tracker := newPeerTracker(self, connGater, nil)
 
+	tracker := newPeerTracker(mockNet[0], connGater, nil)
+
+	go tracker.track()
+	go tracker.gc() // TODO annoying that peer tracker.stop requires gc to have already been running
+	t.Cleanup(func() {
+		err = tracker.stop(ctx)
+		require.NoError(t, err)
+	})
+
+	time.Sleep(200 * time.Millisecond) // there is not a way to do this more deterministically at this time
+
+	peers := make(map[peer.ID]struct{})
+	for _, p := range tracker.tracked() {
+		peers[p.peerID] = struct{}{}
+	}
+
+	// ensure all previous were included
+	for _, previous := range previouslySeen {
+		_, ok := peers[previous.ID]
+		assert.True(t, ok)
+	}
 }
