@@ -24,6 +24,7 @@ func (s *Syncer[H]) Head(ctx context.Context) (H, error) {
 	if isRecent(sbjHead, s.Params.blockTime) {
 		return sbjHead, nil
 	}
+	log.Warnw("SUBJECTIVE HEAD NOT RECENT", "blocktime", s.Params.blockTime, "time since sbj head", time.Since(sbjHead.Time()).String())
 	// otherwise, request head from a trusted peer, as we assume it is fully synced
 	//
 	// TODO(@Wondertan): Here is another potential networking optimization:
