@@ -101,6 +101,10 @@ type VerifyError struct {
 	// TODO(@Wondertan): Better be part of signature Header.Verify() (bool, error), but kept here
 	//  not to break
 	SoftFailure bool
+	// IsMalicious indicates whether the Header error is malicious (intentionally
+	// bad) or not. An example of a malicious error is a hash mismatch. An
+	// example of a non-malicious error is ErrKnownHeader.
+	IsMalicious bool
 }
 
 func (vr *VerifyError) Error() string {

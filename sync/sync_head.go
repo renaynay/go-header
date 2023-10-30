@@ -171,7 +171,7 @@ func (s *Syncer[H]) verify(ctx context.Context, newHead H) (bool, error) {
 	}
 
 	var verErr *header.VerifyError
-	if errors.As(err, &verErr) && !verErr.SoftFailure {
+	if errors.As(err, &verErr) && !verErr.SoftFailure && !verErr.IsMalicious {
 		log.Errorw("invalid network header",
 			"height_of_invalid", newHead.Height(),
 			"hash_of_invalid", newHead.Hash(),
