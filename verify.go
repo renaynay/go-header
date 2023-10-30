@@ -17,9 +17,9 @@ const DefaultHeightThreshold uint64 = 80000 // ~ 14 days of 15 second headers
 // Always returns VerifyError.
 func Verify[H Header[H]](trstd, untrstd H, heightThreshold uint64) error {
 	// general mandatory verification
-	err := verify[H](trstd, untrstd, heightThreshold)
+	malicious, err := verify[H](trstd, untrstd, heightThreshold)
 	if err != nil {
-		return &VerifyError{Reason: err}
+		return &VerifyError{Reason: err, IsMalicious: malicious}
 	}
 	// user defined verification
 	err = trstd.Verify(untrstd)
@@ -44,42 +44,46 @@ func Verify[H Header[H]](trstd, untrstd H, heightThreshold uint64) error {
 }
 
 // verify is a little bro of Verify yet performs mandatory Header checks
-// for any Header implementation.
-func verify[H Header[H]](trstd, untrstd H, heightThreshold uint64) error {
+// for any Header implementation. It will return an error and a bool that
+// indicates whether that error is malicious.
+func verify[H Header[H]](trstd, untrstd H, heightThreshold uint64) (bool, error) {
 	if heightThreshold == 0 {
 		heightThreshold = DefaultHeightThreshold
 	}
 
 	if untrstd.IsZero() {
-		return ErrZeroHeader
+		return true, ErrZeroHeader
 	}
 
 	if untrstd.ChainID() != trstd.ChainID() {
-		return fmt.Errorf("%w: '%s' != '%s'", ErrWrongChainID, untrstd.ChainID(), trstd.ChainID())
+		return true, fmt.Errorf("%w: '%s' != '%s'", ErrWrongChainID, untrstd.ChainID(), trstd.ChainID())
 	}
 
 	if untrstd.Time().Before(trstd.Time()) {
-		return fmt.Errorf("%w: timestamp '%s' < current '%s'", ErrUnorderedTime, formatTime(untrstd.Time()), formatTime(trstd.Time()))
+		return false, fmt.Errorf("%w: timestamp '%s' < current '%s'",
+			ErrUnorderedTime, formatTime(untrstd.Time()), formatTime(trstd.Time()))
 	}
 
 	now := time.Now()
 	if untrstd.Time().After(now.Add(clockDrift)) {
-		return fmt.Errorf("%w: timestamp '%s' > now '%s', clock_drift '%v'", ErrFromFuture, formatTime(untrstd.Time()), formatTime(now), clockDrift)
+		return true, fmt.Errorf("%w: timestamp '%s' > now '%s', clock_drift '%v'",
+			ErrFromFuture, formatTime(untrstd.Time()), formatTime(now), clockDrift)
 	}
 
 	known := untrstd.Height() <= trstd.Height()
 	if known {
-		return fmt.Errorf("%w: '%d' <= current '%d'", ErrKnownHeader, untrstd.Height(), trstd.Height())
+		return false, fmt.Errorf("%w: '%d' <= current '%d'", ErrKnownHeader, untrstd.Height(), trstd.Height())
 	}
 	// reject headers with height too far from the future
 	// this is essential for headers failed non-adjacent verification
 	// yet taken as sync target
 	adequateHeight := untrstd.Height()-trstd.Height() < heightThreshold
 	if !adequateHeight {
-		return fmt.Errorf("%w: '%d' - current '%d' >= threshold '%d'", ErrHeightFromFuture, untrstd.Height(), trstd.Height(), heightThreshold)
+		return true, fmt.Errorf("%w: '%d' - current '%d' >= threshold '%d'",
+			ErrHeightFromFuture, untrstd.Height(), trstd.Height(), heightThreshold)
 	}
 
-	return nil
+	return false, nil
 }
 
 var (

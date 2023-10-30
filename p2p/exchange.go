@@ -168,7 +168,7 @@ func (ex *Exchange[H]) Head(ctx context.Context, opts ...header.HeadOption[H]) (
 				err = header.Verify[H](reqParams.TrustedHead, headers[0], header.DefaultHeightThreshold)
 				if err != nil {
 					var verErr *header.VerifyError
-					if errors.As(err, &verErr) && verErr.SoftFailure {
+					if errors.As(err, &verErr) && (verErr.SoftFailure || verErr.IsMalicious) {
 						log.Debugw("received head from tracked peer that soft-failed verification",
 							"tracked peer", from, "err", err)
 						headerRespCh <- headers[0]
