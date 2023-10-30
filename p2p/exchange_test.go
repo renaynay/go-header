@@ -38,7 +38,7 @@ func TestExchange_RequestHead(t *testing.T) {
 	// create new server-side exchange that will act as the tracked peer
 	// it will have a higher chain head than the trusted peer so that the
 	// test can determine which peer was asked
-	trackedStore := headertest.NewStore[*headertest.DummyHeader](t, headertest.NewTestSuite(t), 50)
+	trackedStore := headertest.NewStore[*headertest.DummyHeader](t, headertest.NewTestSuite(t), 5)
 	serverSideEx, err := NewExchangeServer[*headertest.DummyHeader](hosts[2], trackedStore,
 		WithNetworkID[ServerParameters](networkID),
 	)
@@ -129,6 +129,41 @@ func TestExchange_RequestHead_SoftFailure(t *testing.T) {
 	softFailHead, err := exchg.Head(ctx, header.WithTrustedHead[*headertest.DummyHeader](head))
 	require.NoError(t, err)
 	assert.Equal(t, trackedStore.HeadHeight, softFailHead.Height())
+}
+
+// TestExchange_RequestHead_ErrKnownHeader tests that the exchange returns
+// ErrNotFound for a header that is returned from a tracked peer that is of a
+// known height.
+func TestExchange_RequestHead_ErrKnownHeader(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	hosts := createMocknet(t, 3)
+	exchg, _ := createP2PExAndServer(t, hosts[0], hosts[1])
+
+	// create a tracked peer
+	suite := headertest.NewTestSuite(t)
+	trackedStore := headertest.NewStore[*headertest.DummyHeader](t, suite, 5)
+	// start the tracked peer's server
+	serverSideEx, err := NewExchangeServer[*headertest.DummyHeader](hosts[2], trackedStore,
+		WithNetworkID[ServerParameters](networkID),
+	)
+	require.NoError(t, err)
+	err = serverSideEx.Start(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		err = serverSideEx.Stop(ctx)
+		require.NoError(t, err)
+	})
+
+	// get first subjective head from trusted peer to initialize the
+	// exchange's store
+	head, err := exchg.Head(ctx)
+	require.NoError(t, err)
+
+	_, err = exchg.Head(ctx, header.WithTrustedHead[*headertest.DummyHeader](head))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, header.ErrNotFound)
 }
 
 func TestExchange_RequestHead_UnresponsivePeer(t *testing.T) {

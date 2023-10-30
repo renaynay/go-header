@@ -16,6 +16,10 @@ const DefaultHeightThreshold uint64 = 80000 // ~ 14 days of 15 second headers
 // If heightThreshold is zero, uses DefaultHeightThreshold.
 // Always returns VerifyError.
 func Verify[H Header[H]](trstd, untrstd H, heightThreshold uint64) error {
+	// check if header is already known and short-circuit
+	if !untrstd.IsZero() && untrstd.Height() <= trstd.Height() {
+		return fmt.Errorf("%w: '%d' <= current '%d'", ErrKnownHeader, untrstd.Height(), trstd.Height())
+	}
 	// general mandatory verification
 	err := verify[H](trstd, untrstd, heightThreshold)
 	if err != nil {
@@ -67,10 +71,6 @@ func verify[H Header[H]](trstd, untrstd H, heightThreshold uint64) error {
 		return fmt.Errorf("%w: timestamp '%s' > now '%s', clock_drift '%v'", ErrFromFuture, formatTime(untrstd.Time()), formatTime(now), clockDrift)
 	}
 
-	known := untrstd.Height() <= trstd.Height()
-	if known {
-		return fmt.Errorf("%w: '%d' <= current '%d'", ErrKnownHeader, untrstd.Height(), trstd.Height())
-	}
 	// reject headers with height too far from the future
 	// this is essential for headers failed non-adjacent verification
 	// yet taken as sync target
@@ -87,8 +87,9 @@ var (
 	ErrWrongChainID     = errors.New("wrong chain id")
 	ErrUnorderedTime    = errors.New("unordered headers")
 	ErrFromFuture       = errors.New("header is from the future")
-	ErrKnownHeader      = errors.New("known header")
 	ErrHeightFromFuture = errors.New("header height is far from future")
+
+	ErrKnownHeader = errors.New("known header")
 )
 
 // VerifyError is thrown if a Header failed verification.

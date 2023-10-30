@@ -98,13 +98,16 @@ func TestVerify(t *testing.T) {
 	for i, test := range tests {
 		t.Run(strconv.Itoa(i), func(t *testing.T) {
 			err := header.Verify(trusted, test.prepare(), 0)
-			if test.err != nil {
+			switch test.err {
+			case nil:
+				assert.NoError(t, err)
+			case header.ErrKnownHeader:
+				assert.ErrorIs(t, err, test.err)
+			default:
 				var verErr *header.VerifyError
 				assert.ErrorAs(t, err, &verErr)
 				assert.ErrorIs(t, errors.Unwrap(verErr), test.err)
 				assert.Equal(t, test.soft, verErr.SoftFailure)
-			} else {
-				assert.NoError(t, err)
 			}
 		})
 	}
