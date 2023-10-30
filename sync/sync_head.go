@@ -166,8 +166,8 @@ func (s *Syncer[H]) verify(ctx context.Context, newHead H) (bool, error) {
 	}
 
 	err = header.Verify(sbjHead, newHead, heightThreshold)
-	if err == nil {
-		return false, nil
+	if err == nil || errors.Is(err, header.ErrKnownHeader) {
+		return false, err
 	}
 
 	var verErr *header.VerifyError

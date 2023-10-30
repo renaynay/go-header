@@ -280,9 +280,8 @@ func TestSyncerIncomingDuplicate(t *testing.T) {
 
 	time.Sleep(time.Millisecond * 10)
 
-	var verErr *header.VerifyError
 	err = syncer.incomingNetworkHead(ctx, range1[len(range1)-1])
-	assert.ErrorAs(t, err, &verErr)
+	assert.ErrorIs(t, err, header.ErrKnownHeader)
 
 	err = syncer.SyncWait(ctx)
 	require.NoError(t, err)
