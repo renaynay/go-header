@@ -281,6 +281,12 @@ func (ex *Exchange[H]) Get(ctx context.Context, hash header.Hash) (H, error) {
 	if !bytes.Equal(headers[0].Hash(), hash) {
 		return zero, fmt.Errorf("incorrect hash in header: expected %x, got %x", hash, headers[0].Hash())
 	}
+
+	if headers[0].ChainID() != ex.Params.chainID {
+		return zero, fmt.Errorf("incorrect chain ID in header: expected %s, got %s", ex.Params.chainID,
+			headers[0].ChainID())
+	}
+
 	return headers[0], nil
 }
 
