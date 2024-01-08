@@ -152,6 +152,10 @@ func (s *Subscriber[H]) Subscribe() (header.Subscription[H], error) {
 
 // Broadcast broadcasts the given Header to the topic.
 func (s *Subscriber[H]) Broadcast(ctx context.Context, header H, opts ...pubsub.PubOpt) error {
+	err := header.Validate()
+	if err != nil {
+		return err
+	}
 	bin, err := header.MarshalBinary()
 	if err != nil {
 		return err
