@@ -2,7 +2,6 @@ package p2p
 
 import (
 	"context"
-	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -29,17 +28,6 @@ type exchangeMetrics struct {
 	headRequestTimeInst metric.Float64Histogram
 	responseSizeInst    metric.Int64Histogram
 	responseTimeInst    metric.Float64Histogram
-
-	clientReg metric.Registration
-
-	trackerPeersNum     atomic.Int64
-	trackedPeersNumInst metric.Int64ObservableGauge
-
-	disconnectedPeersNum     atomic.Int64
-	disconnectedPeersNumInst metric.Int64ObservableGauge
-
-	blockedPeersNum     atomic.Int64
-	blockedPeersNumInst metric.Int64ObservableGauge
 }
 
 func newExchangeMetrics() (m *exchangeMetrics, err error) {
@@ -65,45 +53,8 @@ func newExchangeMetrics() (m *exchangeMetrics, err error) {
 	if err != nil {
 		return nil, err
 	}
-	m.trackedPeersNumInst, err = meter.Int64ObservableGauge(
-		"hdr_p2p_exch_clnt_trck_peer_num_gauge",
-		metric.WithDescription("exchange client tracked peers number"),
-	)
-	if err != nil {
-		return nil, err
-	}
-	m.disconnectedPeersNumInst, err = meter.Int64ObservableGauge(
-		"hdr_p2p_exch_clnt_disconn_peer_num_gauge",
-		metric.WithDescription("exchange client tracked disconnected peers number"),
-	)
-	if err != nil {
-		return nil, err
-	}
-	m.blockedPeersNumInst, err = meter.Int64ObservableGauge(
-		"hdr_p2p_exch_clnt_block_peer_num_gauge",
-		metric.WithDescription("exchange client blocked peers number"),
-	)
-	if err != nil {
-		return nil, err
-	}
 
-	m.clientReg, err = meter.RegisterCallback(
-		m.observeMetrics,
-		m.trackedPeersNumInst,
-		m.disconnectedPeersNumInst,
-		m.blockedPeersNumInst,
-	)
-	if err != nil {
-		return nil, err
-	}
 	return m, nil
-}
-
-func (m *exchangeMetrics) observeMetrics(_ context.Context, obs metric.Observer) error {
-	obs.ObserveInt64(m.trackedPeersNumInst, m.trackerPeersNum.Load())
-	obs.ObserveInt64(m.disconnectedPeersNumInst, m.disconnectedPeersNum.Load())
-	obs.ObserveInt64(m.blockedPeersNumInst, m.blockedPeersNum.Load())
-	return nil
 }
 
 func (m *exchangeMetrics) head(ctx context.Context, duration time.Duration, headersReceived int, tp, status string) {
@@ -132,24 +83,6 @@ func (m *exchangeMetrics) response(ctx context.Context, size uint64, duration ti
 	})
 }
 
-func (m *exchangeMetrics) peersTracked(num int) {
-	m.observe(context.Background(), func(context.Context) {
-		m.trackerPeersNum.Add(int64(num))
-	})
-}
-
-func (m *exchangeMetrics) peersDisconnected(num int) {
-	m.observe(context.Background(), func(context.Context) {
-		m.disconnectedPeersNum.Add(int64(num))
-	})
-}
-
-func (m *exchangeMetrics) peerBlocked() {
-	m.observe(context.Background(), func(ctx context.Context) {
-		m.blockedPeersNum.Add(1)
-	})
-}
-
 func (m *exchangeMetrics) observe(ctx context.Context, observeFn func(context.Context)) {
 	if m == nil {
 		return
@@ -159,11 +92,4 @@ func (m *exchangeMetrics) observe(ctx context.Context, observeFn func(context.Co
 	}
 
 	observeFn(ctx)
-}
-
-func (m *exchangeMetrics) Close() (err error) {
-	if m == nil {
-		return nil
-	}
-	return m.clientReg.Unregister()
 }

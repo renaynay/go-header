@@ -30,7 +30,7 @@ var (
 type peerTracker struct {
 	host      host.Host
 	connGater *conngater.BasicConnectionGater
-	metrics   *exchangeMetrics
+	metrics   *trackerMetrics
 
 	peerLk sync.RWMutex
 	// trackedPeers contains active peers that we can request to.
@@ -56,13 +56,12 @@ func newPeerTracker(
 	h host.Host,
 	connGater *conngater.BasicConnectionGater,
 	pidstore PeerIDStore,
-	metrics *exchangeMetrics,
-) *peerTracker {
+	metrics bool,
+) (*peerTracker, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &peerTracker{
+	tracker := &peerTracker{
 		host:              h,
 		connGater:         connGater,
-		metrics:           metrics,
 		trackedPeers:      make(map[libpeer.ID]*peerStat),
 		disconnectedPeers: make(map[libpeer.ID]*peerStat),
 		pidstore:          pidstore,
@@ -70,6 +69,15 @@ func newPeerTracker(
 		cancel:            cancel,
 		done:              make(chan struct{}, 2),
 	}
+
+	if metrics {
+		err := tracker.withMetrics()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return tracker, nil
 }
 
 // bootstrap will bootstrap the peerTracker with the given trusted peers and if
@@ -199,8 +207,6 @@ func (p *peerTracker) connected(pID libpeer.ID) {
 		delete(p.disconnectedPeers, pID)
 	}
 	p.trackedPeers[pID] = stats
-
-	p.metrics.peersTracked(1)
 }
 
 func (p *peerTracker) disconnected(pID libpeer.ID) {
@@ -213,9 +219,6 @@ func (p *peerTracker) disconnected(pID libpeer.ID) {
 	stats.pruneDeadline = time.Now().Add(maxAwaitingTime)
 	p.disconnectedPeers[pID] = stats
 	delete(p.trackedPeers, pID)
-
-	p.metrics.peersTracked(-1)
-	p.metrics.peersDisconnected(1)
 }
 
 func (p *peerTracker) peers() []*peerStat {
@@ -260,8 +263,6 @@ func (p *peerTracker) gc() {
 			}
 			p.peerLk.Unlock()
 
-			p.metrics.peersDisconnected(-deletedDisconnectedNum)
-			p.metrics.peersTracked(-deletedTrackedNum)
 			p.dumpPeers(p.ctx)
 		}
 	}

@@ -72,10 +72,15 @@ func NewExchange[H header.Header[H]](
 		}
 	}
 
+	tracker, err := newPeerTracker(host, gater, params.pidstore, params.metrics)
+	if err != nil {
+		return nil, err
+	}
+
 	ex := &Exchange[H]{
 		host:        host,
 		protocolID:  protocolID(params.networkID),
-		peerTracker: newPeerTracker(host, gater, params.pidstore, metrics),
+		peerTracker: tracker,
 		Params:      params,
 		metrics:     metrics,
 	}
@@ -103,7 +108,7 @@ func (ex *Exchange[H]) Stop(ctx context.Context) error {
 	ex.cancel()
 	// stop the peerTracker
 	err := ex.peerTracker.stop(ctx)
-	return errors.Join(err, ex.metrics.Close())
+	return errors.Join(err, ex.peerTracker.metrics.Close())
 }
 
 // Head requests the latest Header from trusted peers.
