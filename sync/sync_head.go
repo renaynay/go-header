@@ -148,6 +148,11 @@ func (s *Syncer[H]) incomingNetworkHead(ctx context.Context, head H) error {
 	defer s.incomingMu.Unlock()
 
 	softFailure, err := s.verify(ctx, head)
+	// TODO @cristaloleg @renaynay: consider keeping `pending` for headers that pass verification WITH SoftFailure
+	//  because it would be worse to insert a header that passes verification with SoftFailure and then ends up potentially
+	//  failing verification once applied adjacently to the previous header and then having to remove that header from
+	//  the store, than to try to apply it from a pending cache and tossing it out of mem in case it fails adj.
+	//  verification.
 	if err != nil && !softFailure {
 		return err
 	}

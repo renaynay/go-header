@@ -16,6 +16,11 @@ const DefaultHeightThreshold uint64 = 80000 // ~ 14 days of 15 second headers
 // Given headers must be non-zero
 // If heightThreshold is zero, uses DefaultHeightThreshold.
 // Always returns VerifyError.
+// TODO @cristaloleg @renaynay:
+//   - we need to keep a function to verify future headers against a trusted head for
+//     the purpose of forward syncing. VerifyForwards
+//   - We also need to add a VerifyBackwards method to verify
+//     a header that is store.Tail().Height()-1 against store.Tail().
 func Verify[H Header[H]](trstd, untrstd H, heightThreshold uint64) error {
 	// general mandatory verification
 	err := verify[H](trstd, untrstd, heightThreshold)

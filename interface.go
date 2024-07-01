@@ -94,6 +94,33 @@ type Getter[H Header[H]] interface {
 	// GetByHeight returns the Header corresponding to the given block height.
 	GetByHeight(context.Context, uint64) (H, error)
 
+	// TODO @cristaloleg @renaynay:
+	//  QUESTION ?????????????
+	//  * let's say that we need to do a forward range request from store.Head() to sync.NetHead()
+	//    where store doesn't contain any of the headers in between, and none in pending either.
+	//    We try to verify sync.NetHead() against store.Head() to accept it as our new trusted head.
+	//    If it passes trusted head verification, then we can backwards sync from trusted head down to
+	//    store.Head(). If it fails non adj. verification, we need to request the range between store.Head() and
+	//    sync.NetHead() somehow even though we can't pass sync.NetHead() as a trusted head for the request.
+	//       * scenario:
+	//         | store.Tail == 1 | store.Head == 10 | sync.NetHead == 100 |
+	//         we cannot apply sync.NetHead non-adj. against store.Head (not enough valset overlap)
+	//         we cannot yet accept the sync.NetHead as trusted head so how do we do a range request
+	//         for the headers between store.Head and sync.NetHead if the signature is
+	//                	GetRangeByHeight(ctx context.Context, from H, to uint64) ([]H, error)
+	//         where `from` is trusted Head and `to` is store.Head ?
+
+	// TODO @cristaloleg @renaynay:
+	//  * IDEA 1: `GetForwardsRange` and `GetBackwardsRange` methods
+	//  * IDEA 2: `GetRangeByHeight` can accept a `from` that is either higher
+	//             or lower than `to` and will calibrate verification logic
+	//             based on that request.
+	//  * IDEA 3: `GetRangeByHeight` signature can be (ctx context.Context, from H, diff int64) ([]H, error)
+	//            where diff can be positive or negative and can indicate in which direction to request the range
+	//            can also calibrate verification logic to that
+	//  NOTE!!!!!!
+	//  we will likely need to break proto --> meaning we break protocol, so discuss backwards compatibility!
+
 	// GetRangeByHeight requests the header range from the provided Header and
 	// verifies that the returned headers are adjacent to each other.
 	// Expected to return the range [from.Height()+1:to).

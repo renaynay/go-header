@@ -43,6 +43,9 @@ type Syncer[H header.Header[H]] struct {
 	// signals to start syncing
 	triggerSync chan struct{}
 	// pending keeps ranges of valid new network headers awaiting to be appended to store
+	// TODO @cristaloleg @renaynay: keep pending only for headers that SoftFailure and try to apply them
+	//  when they can be applied adjacently bc only then will we know for sure whether the header is ok to be
+	//  accepted
 	pending ranges[H]
 	// incomingMu ensures only one incoming network head candidate is processed at the time
 	incomingMu sync.Mutex
@@ -190,6 +193,22 @@ func (s *Syncer[H]) syncLoop() {
 }
 
 // sync ensures we are synced from the Store's head up to the new subjective head.
+// TODO @cristaloleg @renaynay:
+//   - sync loop should be checking to see if store.Tail().Height() is > 1, then
+//     request all headers below from p2p.Exchange. This process won't need access
+//     to pending cache of the syncer b/c pending is always going to be > store.Head().
+//   - let's say I start a node for 1 minute then shut it off where head of
+//     network is 100, it only was able to sync. In that time, it was only able to
+//     backwards sync to 50, meaning store.Head() == 100 and store.Tail() == 50. We
+//     still need to close the gap between (1:50). This is assuming NO header pruning.
+//   - store would have an assumption that it cannot insert anything into the store
+//     below the Tail that is not directly adjacent to the Tail. e.g. We can only
+//     do non-adjacent writes to the store that are > store.Head().Height()
+//   - sync loop would also have to try to forwards-sync from store.Head() to network.Head() and close
+//     any potential gaps in between (via store.HasAt and sync.pending) where store.HasAt would be able
+//     to check if that height was already inserted successfully into the store and SKIP requesting it
+//     from p2p.Exchange, and pending would be accessed in case there were headers that soft-failed non-adj.
+//     verification, and any other gaps would need to be requested directly from p2p.Exchange.
 func (s *Syncer[H]) sync(ctx context.Context) {
 	subjHead, err := s.subjectiveHead(ctx)
 	if err != nil {
@@ -269,6 +288,12 @@ func (s *Syncer[H]) processHeaders(
 	fromHead H,
 	to uint64,
 ) (err error) {
+	// TODO @cristaloleg @renaynay:
+	//  * this method will need to access pending *only* to try to apply headers of
+	//    heights that did not pass non-adjacent verification
+	// 	* syncer should only do `HasAt` on heights beyond the store.Head().Height() bc
+	//    HasAt checks would be wasteful as we know everything between store.Tail() --> store.Head() is present
+	//    in the Store
 	for {
 		headersRange, ok := s.pending.First()
 		if !ok {
