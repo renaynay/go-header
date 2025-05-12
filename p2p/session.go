@@ -22,9 +22,14 @@ import (
 
 var tracerSession = otel.Tracer("header/p2p-session")
 
-// errEmptyResponse means that server side closes the connection without sending at least 1
-// response.
-var errEmptyResponse = errors.New("empty response")
+var (
+	// errEmptyResponse means that server side closes the connection without
+	// sending at least 1 response.
+	errEmptyResponse = errors.New("empty response")
+	// errMalformedResponse means that the response from the peer does not match
+	// the request.
+	errMalformedResponse = errors.New("malformed response from peer does not match request")
+)
 
 type option[H header.Header[H]] func(*session[H])
 
@@ -198,13 +203,15 @@ func (s *session[H]) doRequest(
 		log.Debugw("requesting headers from peer failed", "peer", stat.peerID, "err", err)
 	}
 
-	h, err := s.processResponses(r)
+	h, err := s.processResponses(req, r)
 	if err != nil {
 		span.SetStatus(codes.Error, err.Error())
 		logFn := log.Errorw
 
 		switch {
-		case errors.Is(err, header.ErrNotFound), errors.Is(err, errEmptyResponse):
+		// TODO @renaynay: For now, I'm just going to decrease peer score but once we enforce complete range from
+		//  server-side, we should block peer.
+		case errors.Is(err, header.ErrNotFound), errors.Is(err, errEmptyResponse), errors.Is(err, errMalformedResponse):
 			logFn = log.Debugw
 			stat.decreaseScore()
 		default:
@@ -268,7 +275,7 @@ func (s *session[H]) doRequest(
 }
 
 // processResponses converts HeaderResponse to Header.
-func (s *session[H]) processResponses(responses []*p2p_pb.HeaderResponse) (h []H, err error) {
+func (s *session[H]) processResponses(req *p2p_pb.HeaderRequest, responses []*p2p_pb.HeaderResponse) (h []H, err error) {
 	defer func() {
 		r := recover()
 		if r != nil {
@@ -279,6 +286,22 @@ func (s *session[H]) processResponses(responses []*p2p_pb.HeaderResponse) (h []H
 	hdrs, err := processResponses[H](responses)
 	if err != nil {
 		return nil, err
+	}
+
+	// ensure the response == the requested range
+	sort.Slice(hdrs, func(i, j int) bool {
+		return hdrs[i].Height() < hdrs[j].Height()
+	})
+
+	expectedLastHeight := req.GetOrigin() + req.Amount - 1
+
+	if len(hdrs) != int(req.Amount) ||
+		hdrs[0].Height() != req.GetOrigin() ||
+		hdrs[len(hdrs)].Height() != expectedLastHeight {
+		log.Debugw("received headers range does not match the request", "length of resp", len(hdrs),
+			"origin height of resp", hdrs[0].Height(), "last height of resp", hdrs[len(hdrs)-1].Height())
+
+		return nil, errMalformedResponse
 	}
 
 	return hdrs, s.verify(hdrs)
