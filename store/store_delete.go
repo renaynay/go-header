@@ -263,12 +263,10 @@ func (s *Store[H]) DeleteRange(ctx context.Context, from, to uint64) error {
 	}
 	// if range is empty within the current store bounds, it's a no-op
 	if from > head.Height() || to <= tail.Height() {
-		err = fmt.Errorf("header/store range [%d,%d) is not present in store, nothing needs to be deleted: "+
+		return fmt.Errorf("header/store range [%d,%d) is not present in store, nothing needs to be deleted: "+
 			"current head %d, tail %d",
 			from, to, head.Height(), tail.Height(),
 		)
-		log.Error(err)
-		return err
 	}
 
 	// Determine whether we are moving the head or tail pointers, or wiping the
