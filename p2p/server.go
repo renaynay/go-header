@@ -231,6 +231,23 @@ func (serv *ExchangeServer[H]) handleRangeRequest(
 	}
 
 	log.Debugw("server: handling headers request", "from", from, "to", to)
+
+	// reject requests whose bottom is below the tail: those headers were
+	// pruned, so no contiguous range starting at `from` can be served.
+	tail, err := serv.store.Tail(ctx)
+	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
+		log.Debugw("server: could not get current tail", "err", err)
+		serv.metrics.rangeServed(ctx, time.Since(startTime), to-from, true)
+		return nil, err
+	}
+	if from < tail.Height() {
+		span.SetStatus(codes.Error, header.ErrNotFound.Error())
+		log.Debugw("server: requested headers below tail", "from", from, "tail", tail.Height())
+		serv.metrics.rangeServed(ctx, time.Since(startTime), to-from, true)
+		return nil, header.ErrNotFound
+	}
+
 	// check that store has the requested height
 	if !serv.store.HasAt(ctx, to-1) {
 		head, err := serv.store.Head(ctx)
