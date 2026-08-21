@@ -58,6 +58,53 @@ func TestExchangeServer_errorsOnLargeRequest(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestExchangeServer_rangeBelowTail ensures a request whose `from` is below the
+// store's tail (pruned) is rejected with ErrNotFound before reaching GetRange,
+// rather than expanding `to` up to the head and walking a huge range.
+func TestExchangeServer_rangeBelowTail(t *testing.T) {
+	peer := createMocknet(t, 1)
+
+	tail := headertest.RandDummyHeader(t)
+	tail.HeightI = 9_000_000
+	head := headertest.RandDummyHeader(t)
+	head.HeightI = 10_000_000
+	store := &belowTailStore[*headertest.DummyHeader]{tail: tail, head: head}
+
+	server, err := NewExchangeServer[*headertest.DummyHeader](
+		peer[0],
+		store,
+		WithNetworkID[ServerParameters](networkID),
+	)
+	require.NoError(t, err)
+
+	// request a low range below the tail (pruned)
+	_, err = server.handleRangeRequest(context.Background(), 1, 2)
+	require.ErrorIs(t, err, header.ErrNotFound)
+	require.False(t, store.getRangeCalled, "GetRange must not be called for a below-tail request")
+}
+
+// belowTailStore is a minimal store with a tail and head far ahead. It records
+// whether GetRange was called so the test can assert the request is rejected early.
+type belowTailStore[H header.Header[H]] struct {
+	header.Store[H]
+	tail           H
+	head           H
+	getRangeCalled bool
+}
+
+func (s *belowTailStore[H]) Tail(context.Context) (H, error) { return s.tail, nil }
+
+func (s *belowTailStore[H]) Head(context.Context, ...header.HeadOption[H]) (H, error) {
+	return s.head, nil
+}
+
+func (s *belowTailStore[H]) HasAt(context.Context, uint64) bool { return false }
+
+func (s *belowTailStore[H]) GetRange(context.Context, uint64, uint64) ([]H, error) {
+	s.getRangeCalled = true
+	return nil, nil
+}
+
 func TestExchangeServer_Timeout(t *testing.T) {
 	const testRequestTimeout = 150 * time.Millisecond
 
